@@ -53,7 +53,8 @@ async def chat_with_tomori(request: ChatRequest):
 
         for modelo in modelos:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={API_KEY}"
-            response = requests.post(url, json=payload, headers=headers, timeout=15)
+            # ⏱️ Timeout subido a 45 segundos para darle tiempo holgado a Google en la nube
+            response = requests.post(url, json=payload, headers=headers, timeout=45)
 
             if response.status_code == 200:
                 data = response.json()
