@@ -13,13 +13,13 @@ class ChatRequest(BaseModel):
     context: str
     image_base64: Optional[str] = None
 
-# 🔔 Ruta ligera para que Flutter despierte a Render en silencio
+# 🔔 Sin 'async' para que FastAPI maneje hilos paralelos y no congele el servidor
 @app.get("/ping")
-async def ping_server():
+def ping_server():
     return {"status": "awake", "message": "Tomori está despierta y lista"}
 
 @app.post("/chat")
-async def chat_with_tomori(request: ChatRequest):
+def chat_with_tomori(request: ChatRequest):
     try:
         if not API_KEY:
             raise HTTPException(status_code=500, detail="Falta GEMINI_API_KEY en Render")
@@ -40,30 +40,34 @@ async def chat_with_tomori(request: ChatRequest):
             "contents": [{"parts": parts}]
         }
         
-        # ⚡ gemini-3.8-flash en PRIMER lugar para respuesta inmediata
+        # ⚡ Lista priorizada
         modelos = [
             "gemini-3.8-flash",
             "gemini-2.5-flash",
             "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-3.6-flash"
+            "gemini-1.5-flash"
         ]
         
         ultimo_error = ""
 
         for modelo in modelos:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={API_KEY}"
-            # ⏱️ Timeout subido a 45 segundos para darle tiempo holgado a Google en la nube
-            response = requests.post(url, json=payload, headers=headers, timeout=45)
+            try:
+                # ⏱️ Timeout de 5s para conectar y 12s para leer: si un modelo se cuelga, salta rápido al siguiente
+                response = requests.post(url, json=payload, headers=headers, timeout=(5, 12))
 
-            if response.status_code == 200:
-                data = response.json()
-                reply = data['candidates'][0]['content']['parts'][0]['text']
-                print(f"⚡ RESPUESTA RÁPIDA CON: {modelo}")
-                return {"reply": reply}
-            else:
-                ultimo_error = f"[{modelo} -> {response.status_code}]"
-                print(f"⚠️ Saltando {modelo} ({response.status_code})")
+                if response.status_code == 200:
+                    data = response.json()
+                    reply = data['candidates'][0]['content']['parts'][0]['text']
+                    print(f"⚡ RESPUESTA RÁPIDA CON: {modelo}")
+                    return {"reply": reply}
+                else:
+                    ultimo_error = f"[{modelo} -> {response.status_code}]"
+                    print(f"⚠️ Saltando {modelo} (Código {response.status_code})")
+            except requests.exceptions.Timeout:
+                ultimo_error = f"[{modelo} -> Timeout]"
+                print(f"⏱️ {modelo} tardó demasiado, saltando al siguiente modelo...")
+                continue
                 
         raise HTTPException(status_code=500, detail=f"Rechazo: {ultimo_error}")
             
